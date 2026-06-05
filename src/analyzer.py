@@ -1,50 +1,45 @@
 """
 AI-powered content analysis system.
 
-Standalone extraction from Agency OS — the content analysis layer used inside
+Standalone extraction from Agency OS: the content analysis layer used inside
 the Research Agent to evaluate sources before passing them to the Content
 Strategist.
 
 Original: agency-os/services/AIOps/AIOps-Assistant-Local/backend/src/content/analyzer.py
+
+No LangChain. Uses direct httpx calls to the OpenAI-compatible endpoint.
+Set OPENAI_API_KEY for analysis. Without a key, returns fallback results.
 """
 import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
-from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage
+import httpx
 
 from .extractor import ContentExtractor
 
 logger = logging.getLogger(__name__)
+
+_OPENAI_URL   = "https://api.openai.com/v1/chat/completions"
+_DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+_TIMEOUT       = 30
 
 
 class ContentAnalyzer:
     """AI-powered content analysis and insights generation."""
 
     def __init__(self):
-        # Read config directly from environment — no internal settings module needed
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
-        self.llm = self._initialize_llm()
         self.extractor = ContentExtractor()
 
-    def _initialize_llm(self) -> Optional[ChatOpenAI]:
-        """Initialize LLM for content analysis. Returns None if key is missing."""
-        try:
-            if self.openai_api_key:
-                return ChatOpenAI(
-                    model="gpt-4o-mini",
-                    temperature=0.3,
-                    max_tokens=1000,
-                    openai_api_key=self.openai_api_key
-                )
-        except Exception as e:
-            logger.error(f"Failed to initialize LLM for content analysis: {e}")
-        return None
+    @property
+    def _has_llm(self) -> bool:
+        return bool(self.openai_api_key)
 
     async def analyze_url(self, url: str) -> Dict[str, Any]:
         """
@@ -88,58 +83,62 @@ class ContentAnalyzer:
 
     async def _ai_analyze_content(self, content: str, url: Optional[str] = None) -> Dict[str, Any]:
         """
-        Send content to GPT-4o-mini with a structured JSON prompt.
+        Direct httpx call to OpenAI-compatible endpoint. No LangChain.
 
-        The prompt asks for key_insights, sentiment, relevance_score,
-        content_type, main_topics, quality_score, and a one-sentence summary.
-        Metadata (url, domain, analyzed_at, content_length) is merged in after
-        parsing. Falls back to _default_analysis on JSON decode or API errors.
+        Sends content to gpt-4o-mini with a structured JSON prompt.
+        Merges url/domain/length metadata into the parsed result.
+        Falls back to _default_analysis on any failure.
         """
-        if not self.llm:
+        if not self._has_llm:
             return self._default_analysis(url)
 
+        prompt = (
+            "Analyze this content for key insights, relevance, and sentiment.\n\n"
+            f"Content: {content[:2000]}\n\n"
+            "Return ONLY valid JSON with exactly these keys:\n"
+            '{"key_insights": ["insight 1", "insight 2", "insight 3"], '
+            '"sentiment": "positive/negative/neutral", '
+            '"relevance_score": 8.5, '
+            '"content_type": "news/analysis/tutorial/report", '
+            '"main_topics": ["topic1", "topic2"], '
+            '"quality_score": 7.5, '
+            '"summary": "Brief 1-sentence summary"}'
+        )
+
+        payload = {
+            "model": _DEFAULT_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "max_tokens": 1000,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.openai_api_key}",
+            "Content-Type": "application/json",
+        }
+
         try:
-            analysis_prompt = f"""
-            Analyze this content for key insights, relevance, and sentiment:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.post(_OPENAI_URL, headers=headers, json=payload)
 
-            Content: {content[:2000]}...
-
-            Provide analysis as JSON:
-            {{
-                "key_insights": ["insight 1", "insight 2", "insight 3"],
-                "sentiment": "positive/negative/neutral",
-                "relevance_score": 8.5,
-                "content_type": "news/analysis/tutorial/report",
-                "main_topics": ["topic1", "topic2"],
-                "quality_score": 7.5,
-                "summary": "Brief 1-sentence summary"
-            }}
-
-            Return only valid JSON.
-            """
-
-            response = await asyncio.to_thread(
-                self.llm.invoke,
-                [HumanMessage(content=analysis_prompt)]
-            )
-
-            try:
-                analysis = json.loads(response.content)
-
-                # Merge metadata that the LLM doesn't know about
-                analysis.update({
-                    "analyzed_at": datetime.now().isoformat(),
-                    "content_length": len(content),
-                    "url": url,
-                    "domain": urlparse(url).netloc if url else None
-                })
-
-                return analysis
-
-            except json.JSONDecodeError:
-                logger.warning("Failed to parse AI analysis response as JSON")
+            if not resp.is_success:
+                logger.error(f"OpenAI HTTP {resp.status_code}: {resp.text[:200]}")
                 return self._default_analysis(url)
 
+            raw = resp.json()["choices"][0]["message"]["content"]
+            # Strip markdown code fences if present
+            clean = re.sub(r"```(?:json)?\n?", "", raw).strip().rstrip("`")
+            analysis = json.loads(clean)
+            analysis.update({
+                "analyzed_at": datetime.now().isoformat(),
+                "content_length": len(content),
+                "url": url,
+                "domain": urlparse(url).netloc if url else None,
+            })
+            return analysis
+
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse AI analysis response as JSON")
+            return self._default_analysis(url)
         except Exception as e:
             logger.error(f"AI content analysis failed: {e}")
             return self._default_analysis(url)

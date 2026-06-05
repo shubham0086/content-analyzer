@@ -1,8 +1,8 @@
-# Content Analyzer
+﻿# Content Analyzer
 
 > Fetch any URL or paste any text. Get back key insights, multi-level summaries, sentiment, and quality score.
 
-Extracted from Agency OS — the content analysis layer used inside the Research Agent to evaluate sources before passing them to the Content Strategist.
+Extracted from Agency OS: the content analysis layer used inside the Research Agent to evaluate sources before passing them to the Content Strategist.
 
 ## What It Does
 
@@ -17,8 +17,8 @@ Output:
 
 ## Architecture
 
-- `src/extractor.py` — fetches URLs, strips nav/footer/scripts, extracts main content from article/main selectors, limits to 5000 chars for token efficiency
-- `src/analyzer.py` — sends content to GPT-4o-mini with a structured JSON prompt. Parses response. Falls back gracefully if LLM or network unavailable.
+- `src/extractor.py`: fetches URLs, strips nav/footer/scripts, extracts main content from article/main selectors, limits to 5000 chars for token efficiency
+- `src/analyzer.py`: sends content to GPT-4o-mini with a structured JSON prompt. Parses response. Falls back gracefully if LLM or network unavailable.
 
 ## Quick Start
 
@@ -27,7 +27,7 @@ git clone https://github.com/shubham0086/content-analyzer
 cd content-analyzer
 pip install -r requirements.txt
 cp .env.example .env
-# edit .env — add your OPENAI_API_KEY
+# edit .env: add your OPENAI_API_KEY
 python demo/run.py
 ```
 
