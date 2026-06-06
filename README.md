@@ -1,4 +1,8 @@
-﻿# Content Analyzer
+# Content Analyzer
+
+> **IMPORTANT**: This repository contains real, production-ready, battle-tested code extracted directly from active commercial systems (like Agency OS or Founder Growth OS), rather than simplified mock learning artifacts.
+>
+> For project walkthroughs, architecture flowcharts, and system context, visit the live landing page: [shubham0086.github.io/MyPortfolio.github.io/projects/content-analyzer.html](https://shubham0086.github.io/MyPortfolio.github.io/projects/content-analyzer.html)
 
 > Fetch any URL or paste any text. Get back key insights, multi-level summaries, sentiment, and quality score.
 
